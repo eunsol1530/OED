@@ -8,28 +8,31 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const secretToken = require('../config').secretToken;
 const validate = require('jsonschema').validate;
+const { log } = require('../log');
+const { getConnection } = require('../db');
 
 const router = express.Router();
 
 /**
  * Authenticate users and return a JSON Web Token with their user ID.
- * @param {String} email
+ * @param {String} username
  * @param {String} Password
  */
 router.post('/', async (req, res) => {
 	const validParams = {
 		type: 'object',
 		maxProperties: 2,
-		required: ['email', 'password'],
+		required: ['username', 'password'],
 		properties: {
-			email: {
+			username: {
 				type: 'string',
 				minLength: 3,
 				maxLength: 254
 			},
 			password: {
 				type: 'string',
-				minLength: 3
+				minLength: 8,
+				maxLength: 128
 			}
 		}
 	};
@@ -37,12 +40,19 @@ router.post('/', async (req, res) => {
 	if (!validate(req.body, validParams).valid) {
 		res.sendStatus(400);
 	} else {
+		const conn = getConnection();
 		try {
-			const user = await User.getByEmail(req.body.email);
-			const isValid = await bcrypt.compare(req.body.password, user.passwordHash);
+			const user = await User.getByUsername(req.body.username, conn);
+			let isValid;
+			if (user === null) {
+				// User did not exist so return false.
+				isValid = false;
+			} else {
+				isValid = await bcrypt.compare(req.body.password, user.passwordHash);
+			}
 			if (isValid) {
 				const token = jwt.sign({ data: user.id }, secretToken, { expiresIn: 86400 });
-				res.json({ token: token });
+				res.json({ token: token, username: user.username, role: user.role });
 			} else {
 				throw new Error('Unauthorized password');
 			}
@@ -50,6 +60,7 @@ router.post('/', async (req, res) => {
 			if (err.message === 'Unauthorized password' || err.message === 'No data returned from the query.') {
 				res.status(401).send({ text: 'Not authorized' });
 			} else {
+				log.error(`Unable to check user password for ${req.body.username}`, err);
 				res.status(500).send({ text: 'Internal Server Error' });
 			}
 		}

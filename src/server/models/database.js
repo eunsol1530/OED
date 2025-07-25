@@ -4,26 +4,46 @@
 
 const pgp = require('pg-promise')({
 	// This sets the style of returned durations so that Moment can parse them
-	connect: (client, dc, fresh) => {
+	connect({ client, useCount }) {
 		// Only set the style on fresh connections
-		if (fresh === true || fresh === undefined) {
+		if (useCount === 0) {
 			client.query('SET intervalStyle = iso_8601');
 		}
 	}
 });
+
 const path = require('path');
-const config = require('../config');
 const patchMomentType = require('./patch-moment-type');
+const patchPointType = require('./patch-point-type');
 
 patchMomentType(pgp);
+patchPointType(pgp);
+
 /**
- * The connection to the database
- * @type {pgPromise.IDatabase}
+ * Create a new connection to the database.
+ * @returns {pgPromise.IDatabase}
  */
-const db = pgp(config.database);
+function getDB(connectionParameters) {
+	return pgp(connectionParameters);
+}
+
+/**
+ * Get the name of the database current being worked on.
+ * @returns {string}
+ */
+function getCurrentDB() {
+	return currentDB;
+}
+
+/**
+ * Closes the connection pool and stops pg-promise
+ * Only call this to avoid the 30 second script timeout before pg-promise closes connections.
+ */
+function stopDB() {
+	pgp.end();
+}
 
 const sqlFilesDir = path.join(__dirname, '..', 'sql');
-
 const loadedSqlFiles = {};
 
 /**
@@ -45,9 +65,10 @@ function sqlFile(filePath) {
 
 /**
  * Returns a promise to create the database schema.
- * @return {Promise<void>}
+ * @param conn the connection to be used.
+ * @returns {Promise<void>}
  */
-async function createSchema() {
+async function createSchema(conn) {
 	// We need to require these here instead of at the top to prevent circular dependency issues.
 	/* eslint-disable global-require */
 	const Meter = require('./Meter');
@@ -55,31 +76,53 @@ async function createSchema() {
 	const User = require('./User');
 	const Group = require('./Group');
 	const Preferences = require('./Preferences');
-	/* eslint-enable global-require */
-	await Meter.createMeterTypesEnum();
-	await Meter.createTable();
-	await Reading.createTable();
-	await Reading.createCompressedReadingsFunction();
-	await Reading.createCompressedGroupsReadingsFunction();
-	await Reading.createBarchartReadingsFunction();
-	await Reading.createCompressedGroupsBarchartReadingsFunction();
-	await User.createTable();
-	await Preferences.createGraphTypesEnum();
-	await Preferences.createTable();
-	await Group.createTables();
-	await db.none(sqlFile('reading/create_function_get_compressed_readings.sql'));
-}
+	const Configfile = require('./obvius/Configfile');
+	const Migration = require('./Migration');
+	const LogEmail = require('./LogEmail');
+	const LogMsg = require('./LogMsg');
+	const Baseline = require('./Baseline');
+	const { Map } = require('./Map');
+	const Unit = require('./Unit');
+	const Conversion = require('./Conversion');
+	const Cik = require('./Cik');
 
-/**
- * Closes the connection pool and stops pg-promise
- * Only call this to avoid the 30 second script timeout before pg-promise closes connections.
- */
-function stopDB() {
-	pgp.end();
+	/* eslint-enable global-require */
+	await Unit.createUnitTypesEnum(conn);
+	await Unit.createAreaUnitTypesEnum(conn);
+	await Unit.createDisplayableTypesEnum(conn);
+	await Unit.createDisableChecksTypesEnum(conn);
+	await Unit.createUnitRepresentTypesEnum(conn);
+	await Unit.createTable(conn);
+	await Conversion.createTable(conn);
+	await Cik.createTable(conn);
+	await Meter.createMeterTypesEnum(conn);
+	// This sql code creates a function to check meter's timezone.
+	// It needs to be called before meter table is created.
+	await conn.none(sqlFile('meter/check_timezone.sql'));
+	await Meter.createTable(conn);
+	await Reading.createReadingLineAccuracyEnum(conn);
+	await Reading.createTable(conn);
+	await User.createUserTypesEnum(conn);
+	await User.createTable(conn);
+	await Preferences.createTable(conn);
+	await Group.createTables(conn);
+	await Migration.createTable(conn);
+	await LogEmail.createTable(conn);
+	await LogMsg.createLogMsgTypeEnum(conn);
+	await LogMsg.createTable(conn);
+	await Reading.createReadingsMaterializedViews(conn);
+	await Reading.createCompareReadingsFunction(conn);
+	// For 3D reading
+	await Reading.create3DReadingsFunction(conn);
+	await Baseline.createTable(conn);
+	await Map.createTable(conn);
+	await conn.none(sqlFile('baseline/create_function_get_average_reading.sql'));
+	await Configfile.createTable(conn);
 }
 
 module.exports = {
-	db,
+	getDB,
+	currentDB: getCurrentDB,
 	sqlFile,
 	createSchema,
 	pgp,

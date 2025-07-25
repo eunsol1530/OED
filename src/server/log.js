@@ -4,6 +4,10 @@
 
 const fs = require('fs');
 const logFile = require('./config').logFile;
+const LogEmail = require('./models/LogEmail');
+const LogMsg = require('./models/LogMsg');
+const { getConnection } = require('./db');
+const moment = require('moment');
 
 /**
  * Represents the importance of a message to be logged
@@ -31,6 +35,7 @@ class Logger {
 
 	constructor(logFilePath) {
 		this.level = LogLevel.INFO;
+		this.emailLevel = LogLevel.ERROR;
 		this.logToFile = true;
 		this.logToConsole = true;
 		this.logFile = logFilePath;
@@ -43,15 +48,15 @@ class Logger {
 	 * @param {LogLevel} level the level to log at
 	 * @param {String} message the message to log
 	 * @param {Error?} error An optional error object to provide a stacktrace
+	 * @param {boolean?} skipMail Don't e-mail this message even if we would normally emit an e-mail for this level.
 	 */
-	log(level, message, error = null) {
-		// Only log if given a high enough priority level.
-		if (level.priority > this.level.priority) {
-			return;
-		}
-		let messageToLog = `[${level.name}@${new Date(Date.now()).toISOString()}] ${message}\n`;
+	log(level, message, error = null, skipMail = false) {
+		let logTime = moment();
+		let messageToLog = `[${level.name}@${logTime.format('YYYY-MM-DDTHH:mm:ss.SSSZ')}] ${message}\n`;
 
-		// Add a stacktrace to the message if one was provided
+		const conn = getConnection();
+
+		// Add a stacktrace to the message if one was provided.
 		if (error !== null) {
 			if (error.stack) {
 				messageToLog += `Stacktrace: \n${error.stack}\n`;
@@ -65,21 +70,51 @@ class Logger {
 				messageToLog += `An error was included, but it was not an Error object:\n${error}`;
 			}
 		}
-		if (this.logToConsole) {
-			if (level.priority >= LogLevel.WARN.priority) {
-				// eslint-disable-next-line no-console
-				console.error(messageToLog);
-			} else {
-				// eslint-disable-next-line no-console
-				console.log(messageToLog);
-			}
-		}
+
+		// Always log to the logfile.
 		if (this.logToFile) {
-			fs.appendFile(logFile, messageToLog, err => {
+			fs.appendFile(logFile, messageToLog, async err => {
 				if (err) {
-					console.error(`Failed to write to log file: ${err}`); // eslint-disable-line no-console
+					console.error(`Failed to write to log file: ${err} (${err.stack})`); // tslint:disable-line no-console
 				}
 			});
+
+			// Write the new log to the database
+			const logMsg = new LogMsg(level.name, message, logTime);
+			(async () => {
+				try {
+					await logMsg.insert(conn);
+				} catch (err) {
+					console.error(`Failed to write log to database: ${err} (${err.stack})`);
+				}
+			})();
+		}
+
+		// Only log elsewhere if given a high enough priority level.
+		if (level.priority <= this.level.priority && !skipMail) {
+			if (this.logToConsole) {
+				if (level.priority >= LogLevel.WARN.priority) {
+					// tslint:disable-next-line no-console
+					console.error(messageToLog);
+				} else {
+					// tslint:disable-next-line no-console
+					console.log(messageToLog);
+				}
+			}
+		}
+
+		// Only send an e-mail if given a high enough priority level and the database is connected
+		if (level.priority <= this.emailLevel.priority && conn !== null) {
+			let messageToMail = `At ${moment().format('YYYY-MM-DDTHH:mm:ss.SSSZ')}, an ${level.name} event occurred.\n`;
+			messageToMail += `${message}\n`;
+			const logEmail = new LogEmail(undefined, messageToMail);
+			(async () => {
+				try {
+					await logEmail.insert(conn);
+				} catch (err) {
+					console.error(`Error while inserting log mail ${err} (${err.stack})`); // tslint:disable-line no-console
+				}
+			})();
 		}
 	}
 
@@ -87,42 +122,55 @@ class Logger {
 	 * Log the given message at the DEBUG level
 	 * @param {String} message the message to log
 	 * @param {Error?} error An optional error object to include information about
+	 * @param {boolean?} skipMail Don't e-mail this message even if we would normally emit an e-mail for this level.
 	 */
-	debug(message, error = null) {
-		this.log(LogLevel.DEBUG, message, error);
+	debug(message, error = null, skipMail = false) {
+		this.log(LogLevel.DEBUG, message, error, skipMail);
 	}
 
 	/**
 	 * Log the given message at the INFO level
 	 * @param {String} message the message to log
 	 * @param {Error?} error An optional error object to include information about
+	 * @param {boolean?} skipMail Don't e-mail this message even if we would normally emit an e-mail for this level.
 	 */
-	info(message, error = null) {
-		this.log(LogLevel.INFO, message, error);
+	info(message, error = null, skipMail = false) {
+		this.log(LogLevel.INFO, message, error, skipMail);
 	}
 
 	/**
 	 * Log the given message at the WARN level
 	 * @param {String} message the message to log
 	 * @param {Error?} error An optional error object to include information about
+	 * @param {boolean?} skipMail Don't e-mail this message even if we would normally emit an e-mail for this level.
 	 */
-	warn(message, error = null) {
-		this.log(LogLevel.WARN, message, error);
+	warn(message, error = null, skipMail = false) {
+		this.log(LogLevel.WARN, message, error, skipMail);
 	}
 
 	/**
 	 * Log the given message at the ERROR level
 	 * @param {String} message the message to log
 	 * @param {Error?} error An optional error object to include information about
+	 * @param {boolean?} skipMail Don't e-mail this message even if we would normally emit an e-mail for this level.
 	 */
-	error(message, error) {
-		this.log(LogLevel.ERROR, message, error);
+	error(message, error = null, skipMail = false) {
+		this.log(LogLevel.ERROR, message, error, skipMail);
 	}
 
 }
 
-
 const defaultLogger = new Logger(logFile);
+
+/*
+ * Wherever logging is available, the Node.js runtime will call this function to log unhandled rejections.
+ * This helps with debugging, especially in tests.
+ */
+process.on('unhandledRejection', (reason, p) => {
+	p.catch(e => {
+		defaultLogger.error(`Unhandled Promise Rejection: ${reason}`, e);
+	});
+});
 
 defaultLogger.logToFile = true;
 defaultLogger.logToConsole = true;

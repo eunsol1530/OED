@@ -2,9 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-CREATE TABLE groups (
+CREATE TABLE IF NOT EXISTS groups (
 	id SERIAL PRIMARY KEY NOT NULL,
-	name VARCHAR(50) UNIQUE NOT NULL CHECK (char_length(name) >= 1)
+	name VARCHAR(50) UNIQUE NOT NULL CHECK (char_length(name) >= 1),
+	displayable BOOLEAN,
+	gps POINT DEFAULT NULL,
+	note TEXT,
+	area REAL NOT NULL DEFAULT 0 CHECK (area >= 0),
+	default_graphic_unit INTEGER REFERENCES units(id),
+	area_unit area_unit_type NOT NULL DEFAULT 'none'
 );
 
 /*
@@ -13,7 +19,7 @@ CREATE TABLE groups (
 
   TODO: Ensure that no cycles are inserted into the graph. This will likely require a BEFORE INSERT trigger.
  */
-CREATE TABLE groups_immediate_children (
+CREATE TABLE IF NOT EXISTS groups_immediate_children (
 	parent_id INT NOT NULL REFERENCES groups (id),
 	child_id  INT NOT NULL REFERENCES groups (id),
 	PRIMARY KEY (parent_id, child_id), -- Only one edge between a parent and a child
@@ -23,7 +29,7 @@ CREATE TABLE groups_immediate_children (
 /*
   The groups_deep_children view provides a logical table with a row for each (parent, deep child) relationship in the tree.
  */
-CREATE VIEW groups_deep_children AS
+CREATE OR REPLACE VIEW groups_deep_children AS
 	/* This recursive common table expression (CTE) starts at each no-e in the graph and iterates.
       At each iteration, it adds new rows to the result set for each newly discovered deep child relationship.
   */
@@ -51,7 +57,7 @@ CREATE VIEW groups_deep_children AS
 
   TODO: Ensure that the graph structure is actually a multitree. This will probably require a BEFORE INSERT trigger.
 */
-CREATE TABLE meters_immediate_children (
+CREATE TABLE IF NOT EXISTS meters_immediate_children (
 	parent_id INT NOT NULL REFERENCES meters (id),
 	child_id  INT NOT NULL REFERENCES meters (id),
 	PRIMARY KEY (parent_id, child_id),
@@ -62,7 +68,7 @@ CREATE TABLE meters_immediate_children (
   Similarly to groups_deep_children, meters_deep_children provides all of the (parent, deep_child) relationships in the
   multitree of meter relationships.
  */
-CREATE VIEW meters_deep_children AS
+CREATE OR REPLACE VIEW meters_deep_children AS
 	/*
     This is implemented the same way that decks_deep_children is implemented.
    */
@@ -87,7 +93,7 @@ CREATE VIEW meters_deep_children AS
 /*
   This table represents the many-to-many relationship between groups and meters.
 */
-CREATE TABLE groups_immediate_meters (
+CREATE TABLE IF NOT EXISTS groups_immediate_meters (
 	group_id INT NOT NULL REFERENCES groups (id),
 	meter_id INT NOT NULL REFERENCES meters (id),
 	PRIMARY KEY (group_id, meter_id)
@@ -102,7 +108,7 @@ CREATE TABLE groups_immediate_meters (
   TODO: Deal with parent meters that are installed after their children. They only shadow them from a start-date onwards.
   The above to-do is probably going to require a significant reworking of some stuff.
  */
-CREATE VIEW groups_deep_meters AS
+CREATE OR REPLACE VIEW groups_deep_meters AS
 	/* First we need to get all the deep child meters for each group. We just join groups_immediate_meters to
     groups_deep_children to grab all the meters associated with a group or one of its deep children.
   */
@@ -137,7 +143,7 @@ CREATE VIEW groups_deep_meters AS
 		)            AS is_shadowed
 	FROM all_deep_meters adm;
 
-CREATE FUNCTION check_cyclic_groups()
+CREATE OR REPLACE FUNCTION check_cyclic_groups()
 	RETURNS TRIGGER AS
 	$$
 		DECLARE
@@ -154,8 +160,24 @@ CREATE FUNCTION check_cyclic_groups()
 	$$
 	LANGUAGE 'plpgsql';
 
-CREATE TRIGGER check_cyclic_groups_trigger
+-- This will avoid trying to create the trigger if it exists as that causes an error. This is an issue since
+-- the OED install stops the creation of database items after this.
+DO
+$$
+BEGIN
+IF NOT EXISTS(SELECT *
+	FROM information_schema.triggers
+	WHERE event_object_table = 'groups_immediate_children'
+	AND trigger_name = 'check_cyclic_groups_trigger'
+	)
+	THEN
+	CREATE TRIGGER check_cyclic_groups_trigger
 	BEFORE INSERT OR UPDATE
 	ON groups_immediate_children
 	FOR EACH ROW
-	EXECUTE PROCEDURE check_cyclic_groups();
+	EXECUTE PROCEDURE check_cyclic_groups();                                                         
+ 
+    END IF ;
+
+END;
+$$

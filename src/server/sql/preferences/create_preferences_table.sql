@@ -7,5 +7,17 @@ CREATE TABLE IF NOT EXISTS preferences (
 	id SERIAL PRIMARY KEY,
 	display_title VARCHAR(50) NOT NULL,
 	default_chart_to_render graph_type NOT NULL,
-	default_bar_stacking BOOLEAN NOT NULL
+	default_bar_stacking BOOLEAN NOT NULL,
+	default_language language_type NOT NULL,
+	default_timezone TEXT DEFAULT NULL,
+	default_warning_file_size FLOAT NOT NULL,
+	default_file_size_limit FLOAT NOT NULL,
+	default_area_normalization BOOLEAN NOT NULL,
+	default_area_unit area_unit_type NOT NULL,
+	default_meter_reading_frequency INTERVAL NOT NULL,
+	default_meter_minimum_date TIMESTAMP NOT NULL,
+    default_meter_maximum_date TIMESTAMP NOT NULL,
+	default_meter_reading_gap REAL NOT NULL,
+    default_meter_maximum_errors INTEGER NOT NULL,
+	default_help_url TEXT DEFAULT NULL
 );

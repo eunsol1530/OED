@@ -8,17 +8,29 @@ const moment = require('moment');
 
 class TimeInterval {
 	constructor(startTimestamp, endTimestamp) {
+		// utc keeps the moments from changing timezone.
 		this.startTimestamp = startTimestamp && moment.utc(startTimestamp);
 		this.endTimestamp = endTimestamp && moment.utc(endTimestamp);
-		this.isBounded = (this.startTimestamp !== null) && (this.endTimestamp !== null);
+		this.isBounded = (this.startTimestamp !== undefined) && (this.endTimestamp !== undefined);
 	}
 
 	toString() {
-		if (this.isBounded) {
-			// Using '_' as a separator character since it doesn't appear in ISO dates
-			return `${this.startTimestamp.format()}_${this.endTimestamp.format()}`;
+		let str = '';
+		if (this.startTimestamp === undefined && this.endTimestamp === undefined) {
+			str = 'all';
+		} else {
+			// If startTimestamp is defined, append it to the string.(Left bound)
+			if (this.startTimestamp !== undefined) {
+				str += this.startTimestamp.format();
+			}
+			// The middle separator is an underscore.
+			str += '_';
+			// If endTimestamp is defined, append it to the string.(Right bound)
+			if (this.endTimestamp !== undefined) {
+				str += this.endTimestamp.format();
+			}
 		}
-		return 'all';
+		return str;
 	}
 
 	equals(other) {
@@ -38,35 +50,80 @@ class TimeInterval {
 	}
 
 	/**
+	 * Test if this time interval is contains another.
+	 * Intervals are considered to contain equal intervals.
+	 * @param other
+	 * @returns {boolean}
+	 */
+	contains(other) {
+		if (!(other instanceof TimeInterval)) {
+			throw new Error('TimeInterval objects can only be compared to other TimeInterval objects');
+		}
+		/* The logic here is:
+		 *
+		 * THIS starts at -∞ OR not after OTHER
+		 * AND
+		 * THIS ends at +∞ OR not before OTHER
+		 */
+		return (
+			((this.startTimestamp === undefined) || (this.startTimestamp <= other.startTimestamp))
+			&&
+			((this.endTimestamp === undefined) || (this.endTimestamp >= other.endTimestamp))
+		);
+	}
+
+	/**
 	 * Returns TimeInterval.toString() so that using a time interval as an object key will
 	 * have reasonable behaviour.
-	 * @return {*}
+	 * @returns {*}
 	 */
 	valueOf() {
 		return this.toString();
 	}
 
+	getStartTimestamp() {
+		return this.startTimestamp;
+	}
+
+	getEndTimestamp() {
+		return this.endTimestamp;
+	}
+
+	getIsBounded() {
+		return this.isBounded;
+	}
+	/**
+	 * Check if the time interval is half bounded, meaning it has either a start or an end timestamp, but not both or none.
+	 * @returns {boolean}
+	 */
+	getIsHalfBounded() {
+    return (
+        (this.startTimestamp !== undefined && this.endTimestamp === undefined) ||
+        (this.startTimestamp === undefined && this.endTimestamp !== undefined)
+    );
+}
 	/**
 	 * Creates a new unbounded time interval
-	 * @return {TimeInterval}
+	 * @returns {TimeInterval}
 	 */
 	static unbounded() {
-		return new TimeInterval(null, null);
+		return new TimeInterval(undefined, undefined);
 	}
 
 	/**
 	 * Creates a new TimeInterval from its string representation
 	 * @param {string} stringified the string representation
-	 * @return {TimeInterval}
+	 * @returns {TimeInterval}
 	 */
 	static fromString(stringified) {
 		if (stringified === 'all') {
 			return TimeInterval.unbounded();
 		}
-		// Using '_' as a separator character since it doesn't appear in ISO dates
-		const [startTimestamp, endTimestamp] = stringified.split('_').map(timestamp => moment(timestamp));
+		const [start, end] = stringified.split('_');
+		const startTimestamp = start ? moment(start) : undefined;
+		const endTimestamp = end ? moment(end) : undefined;
 		return new TimeInterval(startTimestamp, endTimestamp);
 	}
 }
 
-module.exports = TimeInterval;
+module.exports = { TimeInterval };

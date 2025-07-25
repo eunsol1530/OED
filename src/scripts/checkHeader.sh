@@ -14,20 +14,42 @@ FILES=$(git ls-files)
 FILES=$(echo "$FILES" | grep -v ".*\.md")
 FILES=$(echo "$FILES" | grep -v "\.editorconfig")
 FILES=$(echo "$FILES" | grep -v "\.gitattributes")
+FILES=$(echo "$FILES" | grep -v ".vscode")
 FILES=$(echo "$FILES" | grep -v "package\.json")
 # Filter out generated files
 FILES=$(echo "$FILES" | grep -v "package-lock\.json")
 # Filter out images
-FILES=$(echo "$FILES" | grep -v "src\/client\/app\/images\/.*")
-FILES=$(echo "$FILES" | grep -v "src\/client\/favicon\.ico")
+FILES=$(echo "$FILES" | grep -v "src\/client\/public\/.*")
 # Filter out test data
 FILES=$(echo "$FILES" | grep -v "src\/server\/test\/db\/data\/.*")
 # Filter out outside scripts
 FILES=$(echo "$FILES" | grep -v "src\/scripts\/oed\.service")
 FILES=$(echo "$FILES" | grep -v "src\/scripts\/updateMamacMetersOEDCron\.bash")
+FILES=$(echo "$FILES" | grep -v "src\/scripts\/updateEgaugeMetersOEDCron\.bash")
+FILES=$(echo "$FILES" | grep -v "src\/scripts\/sendLogEmailCron\.bash")
+FILES=$(echo "$FILES" | grep -v "src\/scripts\/refreshReadingViewsCron\.bash")
+FILES=$(echo "$FILES" | grep -v "src\/scripts\/refreshHourlyReadingViewsCron\.bash")
+# Filter out test data for Obvius
+FILES=$(echo "$FILES" | grep -v "src\/server\/test\/web\/obvius\/.*")
+# Filter out test data for CSV Pipeline
+FILES=$(echo "$FILES" | grep -v "src\/server\/test\/web\/csvPipeline\/.*")
+# Filter out test data for units Pipeline
+FILES=$(echo "$FILES" | grep -v "src\/server\/test\/web\/units\/.*")
+# Filter out test data for readings
+FILES=$(echo "$FILES" | grep -v "src\/server\/test\/web\/readingsData\/.*")
+# Filter out .github files
+FILES=$(echo "$FILES" | grep -v ".github\/**")
+# Filter out unit test files
+FILES=$(echo "$FILES" | grep -v "src\/server\/data\/unit\/.*")
 
 # Counts the files listed in FILES
 NFILES=$(echo $FILES | wc -w)
+
+if [ "$NFILES" -eq "0" ]; then
+	echo "[MPL2] No files to check for header, please check the checkHeader.sh script.";
+	exit 1;
+fi
+
 echo "[MPL2] Checking $NFILES files for a Mozilla Public License 2.0 header."
 
 # This searches for the above regex.

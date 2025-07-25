@@ -4,6 +4,8 @@
 
 CREATE TABLE IF NOT EXISTS users(
   id SERIAL PRIMARY KEY NOT NULL,
-  email VARCHAR(254) UNIQUE,
-  password_hash CHAR(60) NOT NULL
+  username VARCHAR(254) UNIQUE,
+  password_hash CHAR(60) NOT NULL,
+  role user_type NOT NULL,
+  note TEXT DEFAULT ''
 )

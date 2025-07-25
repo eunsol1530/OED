@@ -5,8 +5,9 @@
 const express = require('express');
 const Preferences = require('../models/Preferences');
 const { log } = require('../log');
-const authentication = require('./authenticator');
+const adminAuthenticator = require('./authenticator').adminAuthMiddleware;
 const validate = require('jsonschema').validate;
+const { getConnection } = require('../db');
 
 const router = express.Router();
 
@@ -14,15 +15,16 @@ const router = express.Router();
  * Route for getting the preferences
  */
 router.get('/', async (req, res) => {
+	const conn = getConnection();
 	try {
-		const rows = await Preferences.get();
+		const rows = await Preferences.get(conn);
 		res.json(rows);
 	} catch (err) {
 		log.error(`Error while performing GET all preferences query: ${err}`, err);
 	}
 });
 
-router.use(authentication);
+router.use(adminAuthenticator('edit site preferences'));
 
 /**
  * Route for updating the preferences
@@ -31,21 +33,54 @@ router.use(authentication);
 router.post('/', async (req, res) => {
 	const validParams = {
 		type: 'object',
-		maxProperties: 2,
-		required: ['token', 'preferences'],
+		maxProperties: 1,
+		required: ['preferences'],
 		properties: {
-			token: {
-				type: 'string',
-			},
 			preferences: {
 				displayTitle: {
-					type: 'string',
+					type: 'string'
 				},
 				defaultChartToRender: {
 					type: 'string'
 				},
-				defaultBarTracking: {
+				defaultBarStacking: {
 					type: 'boolean'
+				},
+				defaultLanguage: {
+					type: 'string'
+				},
+				defaultTimezone: {
+					oneOf: [
+						{ type: 'string' },
+						{ type: 'null' }
+					]
+				},
+				defaultWarningFileSize: {
+					type: 'number'
+				},
+				defaultFileSizeLimit: {
+					type: 'number'
+				},
+				defaultAreaNormalization: {
+					type: 'boolean'
+				},
+				defaultMeterReadingFrequency: {
+					type: 'string'
+				},
+				defaultMeterMinimumDate: {
+					type: 'string'
+				},
+				defaultMeterMaximumDate: {
+					type: 'string'
+				},
+				defaultMeterReadingGap: {
+					type: 'number'
+				},
+				defaultMeterMaximumErrors: {
+					type: 'number'
+				},
+				defaultHelpUrl: {
+					type: 'string'
 				}
 			}
 		}
@@ -53,8 +88,9 @@ router.post('/', async (req, res) => {
 	if (!validate(req.body, validParams).valid) {
 		res.sendStatus(400);
 	} else {
+		const conn = getConnection();
 		try {
-			const rows = await Preferences.update(req.body.preferences);
+			const rows = await Preferences.update(req.body.preferences, conn);
 			res.json(rows);
 		} catch (err) {
 			log.error(`Error while performing POST update preferences: ${err}`, err);
@@ -64,3 +100,4 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+

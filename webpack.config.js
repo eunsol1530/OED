@@ -3,42 +3,59 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const LodashModuleReplacementPlugin = require('lodash-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+const NodePolyfillPlugin = require('node-polyfill-webpack-plugin')
 const webpack = require('webpack');
 const path = require('path');
 
-const BUILD_DIR = path.resolve(__dirname, 'src/client/public');
+const BUILD_DIR = path.resolve(__dirname, 'src/client/public/app');
 const APP_DIR = path.resolve(__dirname, 'src/client/app');
-const COMMON_DIR = path.resolve(__dirname, 'src/common');
 
 const config = {
-	entry: ['babel-polyfill', `${APP_DIR}/index.jsx`],
-	output: {
-		path: BUILD_DIR,
-		filename: 'bundle.js'
+	// Enable sourcemaps for debugging webpack's output.
+	devtool: 'source-map',
+	entry: {
+		application: APP_DIR + '/index.tsx',
+	},
+	cache: {
+		type: 'filesystem'
 	},
 	resolve: {
-		extensions: ['.js', '.jsx']
+		fallback: {
+			'buffer': require.resolve('buffer/'),
+			'assert': require.resolve('assert/'),
+			'stream': require.resolve('stream-browserify'),
+			'fs': false
+		},
+		// Add '.ts' and '.tsx' as resolvable extensions.
+		extensions: ['.css', '.ts', '.tsx', '.js', '.jsx', '.json']
+	},
+
+	// Ignore warnings about bundle size
+	performance: {
+		hints: false
 	},
 	module: {
 		rules: [
-			{
-				test: /\.jsx?/,
-				include: [APP_DIR, COMMON_DIR],
-				loader: 'babel-loader'
-			},
-			{
-				test: /\.css$/,
-				loader: 'style-loader!css-loader'
-			}
+			// All TypeScript ('.ts' or '.tsx') will be handled by 'awesome-typescript-loader'.
+			{ test: /\.[jt]sx?$/, exclude: /node_modules/, use: 'ts-loader' },
+			// CSS stylesheet loader.
+			{ test: /\.css$/, use: [
+				{loader: 'style-loader'},
+				{loader: 'css-loader'}
+			] },
+			// All output '.js' files will have any sourcemaps re-processed by 'source-map-loader'.
+			{ enforce: 'pre', test: /\.js$/, use:[{loader: 'source-map-loader'}] }
 		]
 	},
-	devtool: 'source-map',
+	output: {
+		filename: 'bundle.js',
+		path: BUILD_DIR
+	},
 	plugins: [
-		new LodashModuleReplacementPlugin()
-	],
-	node: {
-		fs: 'empty'
-	}
+		new LodashModuleReplacementPlugin(),
+		new NodePolyfillPlugin()
+	]
 };
 
 if (process.env.NODE_ENV === 'production') {
@@ -48,7 +65,11 @@ if (process.env.NODE_ENV === 'production') {
 				NODE_ENV: JSON.stringify('production')
 			}
 		}),
-		new webpack.optimize.UglifyJsPlugin({ sourceMap: true })
+		new TerserPlugin({
+			terserOptions: {
+				sourceMap: true
+			}
+		})
 	);
 }
 
